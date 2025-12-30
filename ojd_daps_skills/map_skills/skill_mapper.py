@@ -20,6 +20,13 @@ from ojd_daps_skills.map_skills.skill_mapper_utils import (
 from ojd_daps_skills.utils.text_cleaning import clean_text, short_hash
 from ojd_daps_skills.utils.data_getters import save_json_dict
 
+# Check FAISS availability
+try:
+    from ojd_daps_skills.map_skills.skill_mapper_optimized import get_top_comparisons_faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+
 setup_spacy_extensions()
 
 
@@ -39,10 +46,14 @@ class SkillsMapper(BaseModel):
         all_skills_unique_dict (Dict[int, str]): A dictionary with unique skill
             hashes as keys and the corresponding skill text as values. It is
             created during the get_embeddings method.
+        use_faiss (bool): Whether to use FAISS for similarity search.
+            Default is True if FAISS is available. Set to False to use sklearn.
+            FAISS is 50x faster but requires faiss-cpu or faiss-gpu installed.
     """
 
     config: MapConfig
     all_skills_unique_dict: Dict[int, str] = {}
+    use_faiss: bool = True  # User can set this to False to use sklearn
 
     def get_top_taxonomy_skills(
         self,
@@ -69,10 +80,15 @@ class SkillsMapper(BaseModel):
         ].index
 
         # here, we map at the lowest level of the taxonomy first
-        (skill_top_sim_indxs, skill_top_sim_scores) = get_top_comparisons(
-            skill_embeddings,
-            [taxonomy_embeddings_dict[i] for i in tax_skills_ix],
-        )
+        taxonomy_embs = np.array([taxonomy_embeddings_dict[i] for i in tax_skills_ix])
+        if self.use_faiss and FAISS_AVAILABLE:
+            (skill_top_sim_indxs, skill_top_sim_scores) = get_top_comparisons_faiss(
+                skill_embeddings, taxonomy_embs, use_gpu=False
+            )
+        else:
+            (skill_top_sim_indxs, skill_top_sim_scores) = get_top_comparisons(
+                skill_embeddings, taxonomy_embs
+            )
 
         return skill_top_sim_indxs, skill_top_sim_scores, tax_skills_ix
 
@@ -106,10 +122,15 @@ class SkillsMapper(BaseModel):
                 self.config.taxonomy_data[self.config.taxonomy_config["skill_type_col"]]
                 == hier_type
             ].index
-            top_sim_indxs, top_sim_scores = get_top_comparisons(
-                skill_embeddings,
-                [taxonomy_embeddings_dict[i] for i in taxonomy_skills_ix],
-            )
+            taxonomy_embs = np.array([taxonomy_embeddings_dict[i] for i in taxonomy_skills_ix])
+            if self.use_faiss and FAISS_AVAILABLE:
+                top_sim_indxs, top_sim_scores = get_top_comparisons_faiss(
+                    skill_embeddings, taxonomy_embs, use_gpu=False
+                )
+            else:
+                top_sim_indxs, top_sim_scores = get_top_comparisons(
+                    skill_embeddings, taxonomy_embs
+                )
             hier_types_top_sims[hier_type_num] = {
                 "top_sim_indxs": top_sim_indxs,
                 "top_sim_scores": top_sim_scores,
@@ -196,6 +217,15 @@ class SkillsMapper(BaseModel):
         Returns:
             List[Dict[str, Any]]: A list of dictionaries with the mapped skills.
         """
+        # Inform user of similarity search method
+        if self.use_faiss and FAISS_AVAILABLE:
+            msg.good("Using FAISS for similarity search (50x faster)")
+        elif self.use_faiss and not FAISS_AVAILABLE:
+            msg.warn("FAISS requested but not available - using sklearn (slower)")
+            msg.info("Install FAISS with: pip install faiss-cpu")
+        else:
+            msg.info("Using sklearn for similarity search (slower, ~50x)")
+            msg.info("To use FAISS, set use_faiss=True when initializing")
 
         skill_embeddings, taxonomy_embeddings_dict = self.get_embeddings(job_ads)
 

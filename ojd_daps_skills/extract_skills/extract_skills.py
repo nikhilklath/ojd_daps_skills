@@ -26,11 +26,15 @@ class SkillsExtractor(BaseModel):
         ner_model_name (str): spaCy NER model name to load from Hugging Face.
         ms_model_name (str): multiskill model name to load from Hugging Face.
         taxonomy_name (str): pre-defined skills taxonomy name to load data for.
+        use_faiss (bool): Whether to use FAISS for similarity search (default: True).
+            FAISS is ~50x faster than sklearn. Set to False to use sklearn instead.
+            Requires faiss-cpu or faiss-gpu to be installed.
     """
 
     ner_model_name: str = "nestauk/en_skillner"
     ms_model_name: str = "nestauk/multiskill-classifier"
     taxonomy_name: str = "toy"
+    use_faiss: bool = True
     map_config: Optional[MapConfig] = None
     extract_config: Optional[ExtractConfig] = None
     skill_mapper: Optional[SkillsMapper] = None
@@ -41,7 +45,7 @@ class SkillsExtractor(BaseModel):
         self.extract_config = ExtractConfig.create(
             ner_model_name=self.ner_model_name, ms_model_name=self.ms_model_name
         )
-        self.skill_mapper = SkillsMapper(config=self.map_config)
+        self.skill_mapper = SkillsMapper(config=self.map_config, use_faiss=self.use_faiss)
 
     def extract_skills(self, job_ads: Union[str, List[str]]) -> List[Doc]:
         """Return a list of spaCy Doc objects with entities
