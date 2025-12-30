@@ -4,6 +4,7 @@ extracting skills from job descriptions.
 """
 
 import os
+import sys
 from typing import List, Optional
 
 import joblib
@@ -110,10 +111,17 @@ class ExtractConfig(BaseModel):
         except OSError:
             if ner_model_name == "nestauk/en_skillner":
                 msg.info(f"{ner_model_name} NER model not loaded. Downloading model...")
-                os.system(
-                    f'pip install "{ner_name} @ https://huggingface.co/{namespace}/{ner_name}/resolve/main/{ner_name}-any-py3-none-any.whl"'
+                # Download from HuggingFace (560 MB file)
+                wheel_url = f"https://huggingface.co/{namespace}/{ner_name}/resolve/main/{ner_name}-any-py3-none-any.whl"
+                import subprocess
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "install", wheel_url],
+                    capture_output=True,
+                    text=True
                 )
-                msg.info("Model downloaded")
+                if result.returncode != 0:
+                    msg.fail(f"Failed to download model: {result.stderr}", exit=1)
+                msg.info("Model downloaded successfully")
                 nlp = spacy.load(ner_name)
             else:
                 msg.fail(
