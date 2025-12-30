@@ -26,8 +26,13 @@ class BertVectorizer:
         self.batch_size = batch_size
 
     def fit(self, *_):
-        self.bert_model = SentenceTransformer(self.bert_model_name, device="cpu")
+        # GPU acceleration if available
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.bert_model = SentenceTransformer(self.bert_model_name, device=device)
         self.bert_model.max_seq_length = 512
+        if device == "cuda":
+            msg.good(f"Using GPU acceleration for embeddings")
         return self
 
     def transform(self, texts):
