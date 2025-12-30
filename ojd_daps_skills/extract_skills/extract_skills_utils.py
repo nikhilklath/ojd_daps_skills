@@ -111,23 +111,56 @@ class ExtractConfig(BaseModel):
         except OSError:
             if ner_model_name == "nestauk/en_skillner":
                 msg.info(f"{ner_model_name} NER model not loaded. Downloading model...")
-                # Download from HuggingFace (560 MB file)
-                wheel_url = f"https://huggingface.co/{namespace}/{ner_name}/resolve/main/{ner_name}-any-py3-none-any.whl"
+                # Download from HuggingFace (588 MB file)
+                # The wheel has an invalid filename, so we download it first then install
                 import subprocess
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", wheel_url],
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode != 0:
-                    msg.fail(f"Failed to download model: {result.stderr}", exit=1)
-                msg.info("Model downloaded successfully")
-                nlp = spacy.load(ner_name)
+                import tempfile
+                import urllib.request
+
+                wheel_url = f"https://huggingface.co/{namespace}/{ner_name}/resolve/main/{ner_name}-any-py3-none-any.whl"
+
+                # Download to temp file
+                msg.info("Downloading wheel file (588 MB, this may take a few minutes)...")
+                temp_dir = tempfile.gettempdir()
+                # Use a valid wheel filename format: {name}-{version}-{python}-{abi}-{platform}.whl
+                temp_wheel = os.path.join(temp_dir, f"{ner_name}-3.7.1-py3-none-any.whl")
+
+                try:
+                    urllib.request.urlretrieve(wheel_url, temp_wheel)
+                    msg.info("Download complete. Installing model...")
+
+                    # Install from local file with proper encoding for Windows
+                    # Use --no-deps since this is a spaCy model package that depends on spaCy itself
+                    # and we already have spaCy installed
+                    result = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", temp_wheel, "--force-reinstall", "--no-deps"],
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace'
+                    )
+
+                    # Clean up temp file
+                    if os.path.exists(temp_wheel):
+                        os.remove(temp_wheel)
+
+                    if result.returncode != 0:
+                        msg.fail(f"Failed to install model: {result.stderr}")
+                        raise RuntimeError(f"Model installation failed: {result.stderr}")
+
+                    msg.info("Model installed successfully")
+                    nlp = spacy.load(ner_name)
+
+                except Exception as e:
+                    if os.path.exists(temp_wheel):
+                        os.remove(temp_wheel)
+                    msg.fail(f"Failed to download/install model: {str(e)}")
+                    raise RuntimeError(f"Model download/installation failed: {str(e)}")
             else:
                 msg.fail(
-                    f"{ner_model_name} NER model not loaded: {ner_model_name} Please install accordingly.",
-                    exit=1,
+                    f"{ner_model_name} NER model not loaded: {ner_model_name} Please install accordingly."
                 )
+                raise RuntimeError(f"NER model {ner_model_name} not available")
 
         # Load multi-skill model
         ms_model_path = PUBLIC_MODEL_FOLDER_PATH / "ms_model"
